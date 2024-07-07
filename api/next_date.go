@@ -66,7 +66,6 @@ func GetNextDate(task model.Task, layout string) (string, error) {
 	}
 	_, err := time.Parse(layout, task.Date)
 	if err != nil {
-
 		return "", err
 	}
 

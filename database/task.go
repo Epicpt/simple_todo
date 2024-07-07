@@ -7,14 +7,19 @@ import (
 	"main.go/model"
 )
 
+type Repository struct {
+	db *sql.DB
+}
+
+func NewRepository(db *sql.DB) Repository {
+	return Repository{db: db}
+}
+
 // AddTask добавляет задачу в базу данных, возвращает id задачи
-func AddTask(db *sql.DB, task model.Task) (int64, error) {
-	if task.Title == "" {
-		return 0, errors.New("не указан заголовок задачи")
-	}
+func (r Repository) AddTask(task model.Task) (int64, error) {
 
 	query := `INSERT INTO scheduler (date, title, comment, repeat) VALUES (?, ?, ?, ?)`
-	res, err := db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat)
+	res, err := r.db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat)
 	if err != nil {
 		return 0, err
 	}
@@ -28,10 +33,10 @@ func AddTask(db *sql.DB, task model.Task) (int64, error) {
 }
 
 // GetTasks получает последние 50 задач из базы данных
-func GetTasks(db *sql.DB) ([]model.Task, error) {
+func (r Repository) GetTasks() ([]model.Task, error) {
 	var tasks []model.Task
 
-	rows, err := db.Query("SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date LIMIT 50")
+	rows, err := r.db.Query("SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date LIMIT 50")
 	if err != nil {
 		return nil, err
 	}
@@ -53,10 +58,10 @@ func GetTasks(db *sql.DB) ([]model.Task, error) {
 }
 
 // GetTask получает задачу по id
-func GetTask(db *sql.DB, id string) (model.Task, error) {
+func (r Repository) GetTask(id string) (model.Task, error) {
 	var task model.Task
 
-	if err := db.QueryRow("SELECT id, date, title, comment, repeat FROM scheduler WHERE id = ?", id).Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat); err != nil {
+	if err := r.db.QueryRow("SELECT id, date, title, comment, repeat FROM scheduler WHERE id = ?", id).Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat); err != nil {
 		if err == sql.ErrNoRows {
 			return task, err
 		}
@@ -66,10 +71,10 @@ func GetTask(db *sql.DB, id string) (model.Task, error) {
 }
 
 // UpdateTask обновляет все поля задачи
-func UpdateTask(db *sql.DB, task model.Task) error {
+func (r Repository) UpdateTask(task model.Task) error {
 
 	query := `UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat = ? WHERE id = ?`
-	res, err := db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat, task.ID)
+	res, err := r.db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat, task.ID)
 	if err != nil {
 		return err
 	}
@@ -85,11 +90,32 @@ func UpdateTask(db *sql.DB, task model.Task) error {
 	return nil
 }
 
+// UpdateTask обновляет дату задачи
+func (r Repository) UpdateTaskDate(task model.Task) error {
+
+	query := `UPDATE scheduler SET date = ? WHERE id = ?`
+
+	res, err := r.db.Exec(query, task.Date, task.ID)
+	if err != nil {
+		return err
+	}
+
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rows != 1 {
+		return err
+	}
+	return nil
+}
+
 // DeleteTask удаляет задачу из базы данных
-func DeleteTask(db *sql.DB, id string) error {
+func (r Repository) DeleteTask(id string) error {
 
 	deleteQuery := `DELETE FROM scheduler WHERE id = ?`
-	res, err := db.Exec(deleteQuery, id)
+	res, err := r.db.Exec(deleteQuery, id)
 	if err != nil {
 
 		return err

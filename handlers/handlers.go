@@ -1,10 +1,9 @@
 package handlers
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -29,124 +28,144 @@ func HandleNextDate(w http.ResponseWriter, r *http.Request) {
 	out := result
 	if err != nil {
 		out = err.Error()
+		log.Printf("Error next date - %s", out)
 	}
 
-	w.Write([]byte(out))
+	_, err = w.Write([]byte(out))
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func responseWithError(w http.ResponseWriter, err error) {
-	fmt.Printf("%v\n", err)
-	json.NewEncoder(w).Encode(model.ResponseError{Error: err.Error()})
+	log.Printf("%v\n", err)
+	if errEncode := json.NewEncoder(w).Encode(model.ResponseError{Error: err.Error()}); errEncode != nil {
+		log.Println(errEncode)
+	}
 
 }
 
-func HandleTask(db *sql.DB) http.HandlerFunc {
+func HandleTaskPost(repo database.Repository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		var task model.Task
+		err := json.NewDecoder(r.Body).Decode(&task)
+		if err != nil {
+			responseWithError(w, errors.New("Ошибка десериализации JSON"))
+			return
+		}
 
-		switch r.Method {
+		if task.Title == "" {
+			responseWithError(w, errors.New("Не указан заголовок задачи"))
+			return
+		}
+		task.Date, err = api.GetNextDate(task, layoutDate)
+		if err != nil {
+			responseWithError(w, errors.New("Ошибка получения следующей даты"))
+			return
+		}
 
-		case http.MethodPost:
-			var task model.Task
-			err := json.NewDecoder(r.Body).Decode(&task)
-			if err != nil {
-				responseWithError(w, errors.New("Ошибка десериализации JSON"))
-				return
-			}
+		id, err := repo.AddTask(task)
+		if err != nil {
+			responseWithError(w, errors.New("Ошибка добавления задачи"))
+			return
+		}
+		response := map[string]interface{}{
+			"id": id,
+		}
 
-			if task.Title == "" {
-				responseWithError(w, errors.New("Не указан заголовок задачи"))
-				return
-			}
-			task.Date, err = api.GetNextDate(task, layoutDate)
-			if err != nil {
-				responseWithError(w, errors.New("Ошибка получения следующей даты"))
-				return
-			}
-
-			id, err := database.AddTask(db, task)
-			if err != nil {
-				responseWithError(w, errors.New("Ошибка добавления задачи"))
-				return
-			}
-
-			response := map[string]interface{}{
-				"id": id,
-			}
-			json.NewEncoder(w).Encode(response)
-
-		case http.MethodGet:
-
-			tasks, err := database.GetTasks(db)
-			if err != nil {
-				responseWithError(w, errors.New("Ошибка получения задач"))
-			}
-
-			result := model.Tasks{Tasks: tasks}
-
-			if tasks == nil {
-				result = model.Tasks{Tasks: []model.Task{}}
-
-			}
-			json.NewEncoder(w).Encode(result)
-
-		case http.MethodPut:
-
-			var task model.Task
-
-			err := json.NewDecoder(r.Body).Decode(&task)
-			if err != nil {
-				responseWithError(w, err)
-				return
-			}
-
-			if task.ID == "" {
-				responseWithError(w, errors.New("Не указан ID задачи"))
-				return
-			}
-
-			if task.Title == "" {
-				responseWithError(w, errors.New("Не указан заголовок задачи"))
-				return
-			}
-
-			task.Date, err = api.GetNextDate(task, layoutDate)
-			if err != nil {
-				responseWithError(w, errors.New("Ошибка получения следующей даты"))
-				return
-			}
-
-			if err = database.UpdateTask(db, task); err != nil {
-				responseWithError(w, err)
-				return
-
-			}
-
-			json.NewEncoder(w).Encode(map[string]interface{}{})
-
-		case http.MethodDelete:
-
-			id := r.URL.Query().Get("id")
-			if id == "" {
-				responseWithError(w, errors.New("Задача не найдена"))
-				return
-			}
-
-			if err := database.DeleteTask(db, id); err != nil {
-				responseWithError(w, err)
-				return
-
-			}
-
-			json.NewEncoder(w).Encode(map[string]interface{}{})
-
-		default:
-			http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		if errEncode := json.NewEncoder(w).Encode(response); errEncode != nil {
+			log.Println(errEncode)
 		}
 	}
+
 }
 
-func HandleTaskID(db *sql.DB) http.HandlerFunc {
+func HandleTaskGet(repo database.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		tasks, err := repo.GetTasks()
+		if err != nil {
+			responseWithError(w, errors.New("Ошибка получения задач"))
+		}
+
+		result := model.Tasks{Tasks: tasks}
+
+		if tasks == nil {
+			result = model.Tasks{Tasks: []model.Task{}}
+
+		}
+
+		if errEncode := json.NewEncoder(w).Encode(result); errEncode != nil {
+			log.Println(errEncode)
+		}
+	}
+
+}
+
+func HandleTaskPut(repo database.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		var task model.Task
+
+		err := json.NewDecoder(r.Body).Decode(&task)
+		if err != nil {
+			responseWithError(w, err)
+			return
+		}
+
+		if task.ID == "" {
+			responseWithError(w, errors.New("Не указан ID задачи"))
+			return
+		}
+
+		if task.Title == "" {
+			responseWithError(w, errors.New("Не указан заголовок задачи"))
+			return
+		}
+
+		task.Date, err = api.GetNextDate(task, layoutDate)
+		if err != nil {
+			responseWithError(w, errors.New("Ошибка получения следующей даты"))
+			return
+		}
+
+		if err = repo.UpdateTask(task); err != nil {
+			responseWithError(w, err)
+			return
+
+		}
+
+		if errEncode := json.NewEncoder(w).Encode(map[string]interface{}{}); errEncode != nil {
+			log.Println(errEncode)
+		}
+	}
+
+}
+
+func HandleTaskDelete(repo database.Repository) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+		id := r.URL.Query().Get("id")
+		if id == "" {
+			responseWithError(w, errors.New("Задача не найдена"))
+			return
+		}
+
+		if err := repo.DeleteTask(id); err != nil {
+			responseWithError(w, err)
+			return
+
+		}
+
+		if errEncode := json.NewEncoder(w).Encode(map[string]interface{}{}); errEncode != nil {
+			log.Println(errEncode)
+		}
+	}
+
+}
+
+func HandleTaskID(repo database.Repository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
@@ -155,16 +174,18 @@ func HandleTaskID(db *sql.DB) http.HandlerFunc {
 			responseWithError(w, errors.New("Задача не найдена"))
 			return
 		}
-		task, err := database.GetTask(db, id)
+		task, err := repo.GetTask(id)
 		if err != nil {
 			responseWithError(w, errors.New("Ошибка получения задачи"))
 			return
 		}
-		json.NewEncoder(w).Encode(task)
+		if errEncode := json.NewEncoder(w).Encode(task); errEncode != nil {
+			log.Println(errEncode)
+		}
 	}
 }
 
-func HandleTaskDone(db *sql.DB) http.HandlerFunc {
+func HandleTaskDone(repo database.Repository) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
@@ -176,7 +197,7 @@ func HandleTaskDone(db *sql.DB) http.HandlerFunc {
 			responseWithError(w, errors.New("Задача не найдена"))
 			return
 		}
-		task, err := database.GetTask(db, id)
+		task, err := repo.GetTask(id)
 		if err != nil {
 			responseWithError(w, errors.New("Ошибка получения задачи"))
 			return
@@ -191,32 +212,22 @@ func HandleTaskDone(db *sql.DB) http.HandlerFunc {
 			}
 			task.Date = nextDate
 
-			query := `UPDATE scheduler SET date = ? WHERE id = ?`
-
-			res, err := db.Exec(query, task.Date, task.ID)
-			if err != nil {
+			if err := repo.UpdateTaskDate(task); err != nil {
 				responseWithError(w, err)
 				return
+
 			}
 
-			rows, err := res.RowsAffected()
-			if err != nil {
-				responseWithError(w, err)
-				return
-			}
-
-			if rows != 1 {
-				responseWithError(w, errors.New("expected to affect 1 row"))
-				return
-			}
 		} else {
-			if err := database.DeleteTask(db, id); err != nil {
+			if err := repo.DeleteTask(id); err != nil {
 				responseWithError(w, err)
 				return
 
 			}
 
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{})
+		if errEncode := json.NewEncoder(w).Encode(map[string]interface{}{}); errEncode != nil {
+			log.Println(errEncode)
+		}
 	}
 }
