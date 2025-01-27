@@ -8,8 +8,8 @@ TODO List - это веб-приложение на Go для управлени
 
 ### Склонируйте репозиторий
 ```
-git clone https://github.com/Epicpt/go_final_project.git
-cd go_final_project
+git clone https://github.com/Epicpt/simple_todo.git
+cd simple_todo
 go mod tidy
 ```
 ## Запуск
